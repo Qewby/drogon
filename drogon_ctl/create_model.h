@@ -44,12 +44,15 @@ struct ColumnInfo
     bool hasDefaultVal_{false};
 };
 
-inline std::string nameTransform(const std::string &origName, bool isType)
+inline std::string nameTransform(const std::string &origName, bool isType, bool lower = true)
 {
     auto str = origName;
-    std::transform(str.begin(), str.end(), str.begin(), [](unsigned char c) {
-        return tolower(c);
-    });
+    if (lower)
+    {
+        std::transform(str.begin(), str.end(), str.begin(), [](unsigned char c) {
+            return tolower(c);
+        });
+    }
     std::string::size_type startPos = 0;
     std::string::size_type pos;
     std::string ret;
@@ -426,5 +429,6 @@ class create_model : public DrObject<create_model>, public CommandHandler
                                     const Json::Value &restfulApiConfig);
     std::string dbname_;
     bool forceOverwrite_{false};
+    bool _low_class_name{true};
 };
 }  // namespace drogon_ctl

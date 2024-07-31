@@ -12,6 +12,7 @@ using namespace drogon_ctl;
 <%c++
 std::vector<std::string> relationshipClassNames;
 auto &relationships=@@.get<std::vector<Relationship>>("relationships");
+auto low_class_name = @@.get<bool>("lowClassName");
 auto rdbms=@@.get<std::string>("rdbms");
 for(auto &relationship : relationships)
 {
@@ -20,8 +21,8 @@ for(auto &relationship : relationships)
        relationship.type() == Relationship::Type::ManyToMany)
     {
         auto &name=relationship.targetTableName();
-        auto relationshipClassName=nameTransform(name, true);
-        auto originalClassName=nameTransform(relationship.originalTableName(),true);
+        auto relationshipClassName=nameTransform(name, true, low_class_name);
+        auto originalClassName=nameTransform(relationship.originalTableName(),true, low_class_name);
         if(relationshipClassName!=originalClassName)
         {
             relationshipClassNames.push_back(relationshipClassName);
@@ -30,7 +31,7 @@ for(auto &relationship : relationships)
     if(relationship.type() == Relationship::Type::ManyToMany)
     {
         auto &pivotTableName=relationship.pivotTable().tableName();
-        auto pivotTableClassName=nameTransform(pivotTableName, true);
+        auto pivotTableClassName=nameTransform(pivotTableName, true, low_class_name);
         relationshipClassNames.push_back(pivotTableClassName);
     }
 }
@@ -1563,10 +1564,10 @@ for(auto &relationship : relationships)
             continue;
         }
         auto &name=relationship.targetTableName();
-        auto relationshipClassName=nameTransform(name, true);
-        auto relationshipValName=nameTransform(name, false);
+        auto relationshipClassName=nameTransform(name, true, low_class_name);
+        auto relationshipValName=nameTransform(name, false, low_class_name);
         auto alias=relationship.targetTableAlias();
-        auto aliasValName=nameTransform(alias, false);
+        auto aliasValName=nameTransform(alias, false, low_class_name);
         if(!alias.empty())
         {
             if(alias[0] <= 'z' && alias[0] >= 'a')
@@ -1595,7 +1596,7 @@ for(auto &relationship : relationships)
     Result r(nullptr);
     {
         auto binder = *clientPtr << sql;
-        binder << *{%nameTransform(relationship.originalKey(), false)%}_ << Mode::Blocking >>
+        binder << *{%nameTransform(relationship.originalKey(), false, low_class_name)%}_ << Mode::Blocking >>
             [&r](const Result &result) { r = result; };
         binder.exec();
     }
@@ -1624,7 +1625,7 @@ void [[className]]::get{%alias%}(const DbClientPtr &clientPtr,
                 $$<<"?";
             }%>";
     *clientPtr << sql
-               << *{%nameTransform(relationship.originalKey(), false)%}_
+               << *{%nameTransform(relationship.originalKey(), false, low_class_name)%}_
                >> [rcb = std::move(rcb), ecb](const Result &r){
                     if (r.size() == 0)
                     {
@@ -1659,7 +1660,7 @@ std::vector<{%relationshipClassName%}> [[className]]::get{%alias%}(const DbClien
     Result r(nullptr);
     {
         auto binder = *clientPtr << sql;
-        binder << *{%nameTransform(relationship.originalKey(), false)%}_ << Mode::Blocking >>
+        binder << *{%nameTransform(relationship.originalKey(), false, low_class_name)%}_ << Mode::Blocking >>
             [&r](const Result &result) { r = result; };
         binder.exec();
     }
@@ -1686,7 +1687,7 @@ void [[className]]::get{%alias%}(const DbClientPtr &clientPtr,
                 $$<<"?";
             }%>";
     *clientPtr << sql
-               << *{%nameTransform(relationship.originalKey(), false)%}_
+               << *{%nameTransform(relationship.originalKey(), false, low_class_name)%}_
                >> [rcb = std::move(rcb)](const Result &r){
                    std::vector<{%relationshipClassName%}> ret;
                    ret.reserve(r.size());
@@ -1703,7 +1704,7 @@ void [[className]]::get{%alias%}(const DbClientPtr &clientPtr,
         else if(relationship.type() == Relationship::Type::ManyToMany)
         {
             auto &pivotTableName=relationship.pivotTable().tableName();
-            auto pivotTableClassName=nameTransform(pivotTableName, true);
+            auto pivotTableClassName=nameTransform(pivotTableName, true, low_class_name);
             auto &pivotOriginalKey=relationship.pivotTable().originalKey();
             auto &pivotTargetKey=relationship.pivotTable().targetKey();
 %>
@@ -1720,7 +1721,7 @@ std::vector<std::pair<{%relationshipClassName%},{%pivotTableClassName%}>> [[clas
     Result r(nullptr);
     {
         auto binder = *clientPtr << sql;
-        binder << *{%nameTransform(relationship.originalKey(), false)%}_ << Mode::Blocking >>
+        binder << *{%nameTransform(relationship.originalKey(), false, low_class_name)%}_ << Mode::Blocking >>
             [&r](const Result &result) { r = result; };
         binder.exec();
     }
@@ -1748,7 +1749,7 @@ void [[className]]::get{%alias%}(const DbClientPtr &clientPtr,
                 $$<<"?";
             }%> and {%pivotTableName%}.{%pivotTargetKey%} = {%name%}.{%relationship.targetKey()%}";
     *clientPtr << sql
-               << *{%nameTransform(relationship.originalKey(), false)%}_
+               << *{%nameTransform(relationship.originalKey(), false, low_class_name)%}_
                >> [rcb = std::move(rcb)](const Result &r){
                    std::vector<std::pair<{%relationshipClassName%},{%pivotTableClassName%}>> ret;
                    ret.reserve(r.size());

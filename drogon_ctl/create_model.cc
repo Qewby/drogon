@@ -163,7 +163,7 @@ void create_model::createModelClassFromPG(
     const std::vector<Relationship> &relationships,
     const std::vector<ConvertMethod> &convertMethods)
 {
-    auto className = nameTransform(tableName, true);
+    auto className = nameTransform(tableName, true, _low_class_name);
     HttpViewData data;
     data["className"] = className;
     data["tableName"] = toLower(tableName);
@@ -172,6 +172,7 @@ void create_model::createModelClassFromPG(
     data["dbName"] = dbname_;
     data["rdbms"] = std::string("postgresql");
     data["relationships"] = relationships;
+    data["lowClassName"] = _low_class_name;
     data["convertMethods"] = convertMethods;
     if (schema != "public")
     {
@@ -199,8 +200,8 @@ void create_model::createModelClassFromPG(
                 info.index_ = i;
                 info.dbType_ = "pg";
                 info.colName_ = row["column_name"].as<std::string>();
-                info.colTypeName_ = nameTransform(info.colName_, true);
-                info.colValName_ = nameTransform(info.colName_, false);
+                info.colTypeName_ = nameTransform(info.colName_, true, _low_class_name);
+                info.colValName_ = nameTransform(info.colName_, false, _low_class_name);
                 auto isNullAble = row["is_nullable"].as<std::string>();
                 info.notNull_ = isNullAble == "YES" ? false : true;
                 auto type = row["data_type"].as<std::string>();
@@ -366,7 +367,7 @@ void create_model::createModelClassFromPG(
                     if (isNull)
                         return;
                     pkNames.push_back(colName);
-                    pkValNames.push_back(nameTransform(colName, false));
+                    pkValNames.push_back(nameTransform(colName, false, _low_class_name));
                     for (auto &col : cols)
                     {
                         if (col.colName_ == colName)
@@ -448,7 +449,7 @@ void create_model::createModelClassFromMysql(
     const std::vector<Relationship> &relationships,
     const std::vector<ConvertMethod> &convertMethods)
 {
-    auto className = nameTransform(tableName, true);
+    auto className = nameTransform(tableName, true, _low_class_name);
     HttpViewData data;
     data["className"] = className;
     data["tableName"] = toLower(tableName);
@@ -457,11 +458,12 @@ void create_model::createModelClassFromMysql(
     data["dbName"] = dbname_;
     data["rdbms"] = std::string("mysql");
     data["relationships"] = relationships;
+    data["lowClassName"] = _low_class_name;
     data["convertMethods"] = convertMethods;
     std::vector<ColumnInfo> cols;
     int i = 0;
     *client << "desc `" + tableName + "`" << Mode::Blocking >>
-        [&i, &cols](bool isNull,
+        [&i, &cols, low_class_name = _low_class_name](bool isNull,
                     const std::string &field,
                     const std::string &type,
                     const std::string &isNullAble,
@@ -474,8 +476,8 @@ void create_model::createModelClassFromMysql(
                 info.index_ = i;
                 info.dbType_ = "mysql";
                 info.colName_ = field;
-                info.colTypeName_ = nameTransform(info.colName_, true);
-                info.colValName_ = nameTransform(info.colName_, false);
+                info.colTypeName_ = nameTransform(info.colName_, true, low_class_name);
+                info.colValName_ = nameTransform(info.colName_, false, low_class_name);
                 info.notNull_ = isNullAble == "YES" ? false : true;
                 info.colDatabaseType_ = type;
                 info.isPrimaryKey_ = key == "PRI" ? true : false;
@@ -566,7 +568,7 @@ void create_model::createModelClassFromMysql(
         if (col.isPrimaryKey_)
         {
             pkNames.push_back(col.colName_);
-            pkValNames.push_back(nameTransform(col.colName_, false));
+            pkValNames.push_back(nameTransform(col.colName_, false, _low_class_name));
             pkTypes.push_back(col.colType_);
         }
     }
@@ -628,7 +630,7 @@ void create_model::createModelClassFromSqlite3(
     const std::vector<ConvertMethod> &convertMethods)
 {
     HttpViewData data;
-    auto className = nameTransform(tableName, true);
+    auto className = nameTransform(tableName, true, _low_class_name);
     data["className"] = className;
     data["tableName"] = toLower(tableName);
     data["hasPrimaryKey"] = (int)0;
@@ -636,6 +638,7 @@ void create_model::createModelClassFromSqlite3(
     data["dbName"] = std::string("sqlite3");
     data["rdbms"] = std::string("sqlite3");
     data["relationships"] = relationships;
+    data["lowClassName"] = _low_class_name;
     data["convertMethods"] = convertMethods;
     std::vector<ColumnInfo> cols;
     std::string sql = "PRAGMA table_info(" + tableName + ");";
@@ -654,8 +657,8 @@ void create_model::createModelClassFromSqlite3(
             info.index_ = index++;
             info.dbType_ = "sqlite3";
             info.colName_ = row["name"].as<std::string>();
-            info.colTypeName_ = nameTransform(info.colName_, true);
-            info.colValName_ = nameTransform(info.colName_, false);
+            info.colTypeName_ = nameTransform(info.colName_, true, _low_class_name);
+            info.colValName_ = nameTransform(info.colName_, false, _low_class_name);
             info.notNull_ = notnull;
             info.colDatabaseType_ = type;
             info.isPrimaryKey_ = primary;
@@ -743,7 +746,7 @@ void create_model::createModelClassFromSqlite3(
         {
             pkNames.push_back(col.colName_);
             pkTypes.push_back(col.colType_);
-            pkValNames.push_back(nameTransform(col.colName_, false));
+            pkValNames.push_back(nameTransform(col.colName_, false, _low_class_name));
         }
     }
     data["hasPrimaryKey"] = (int)pkNames.size();
@@ -815,6 +818,7 @@ void create_model::createModel(const std::string &path,
     auto restfulApiConfig = config["restful_api_controllers"];
     auto relationships = getRelationships(config["relationships"]);
     auto convertMethods = getConvertMethods(config["convert"]);
+    _low_class_name = config.get("low_class_name", true).asBool();
     if (dbType == "postgresql")
     {
 #if USE_POSTGRESQL

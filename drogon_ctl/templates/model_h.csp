@@ -50,15 +50,16 @@ auto &schema=@@.get<std::string>("schema");
     }
     std::vector<std::string> relationshipClassNames;
     auto &relationships=@@.get<std::vector<Relationship>>("relationships");
+    auto low_class_name = @@.get<bool>("lowClassName");
     for(auto &relationship : relationships)
     {
         auto &name = relationship.targetTableName();
-        auto relationshipClassName = nameTransform(name, true);
+        auto relationshipClassName = nameTransform(name, true, low_class_name);
         relationshipClassNames.push_back(relationshipClassName);
         if(relationship.type() == Relationship::Type::ManyToMany)
         {
             auto &pivotTableName = relationship.pivotTable().tableName();
-            auto pivotTableClassName = nameTransform(pivotTableName, true);
+            auto pivotTableClassName = nameTransform(pivotTableName, true, low_class_name);
             relationshipClassNames.push_back(pivotTableClassName);
         }
     }
@@ -214,10 +215,10 @@ auto cols=@@.get<std::vector<ColumnInfo>>("columns");
             continue;
         }
         auto &name=relationship.targetTableName();
-        auto relationshipClassName=nameTransform(name, true);
-        auto relationshipValName=nameTransform(name, false);
+        auto relationshipClassName=nameTransform(name, true, low_class_name);
+        auto relationshipValName=nameTransform(name, false, low_class_name);
         auto alias=relationship.targetTableAlias();
-        auto aliasValName=nameTransform(alias, false);
+        auto aliasValName=nameTransform(alias, false, low_class_name);
         if(relationship.type() == Relationship::Type::HasOne)
         {
             if(!alias.empty())
@@ -275,7 +276,7 @@ auto cols=@@.get<std::vector<ColumnInfo>>("columns");
         else if(relationship.type() == Relationship::Type::ManyToMany)
         {
             auto &pivotTableName=relationship.pivotTable().tableName();
-            auto pivotTableClassName=nameTransform(pivotTableName, true);
+            auto pivotTableClassName=nameTransform(pivotTableName, true, low_class_name);
             if(!alias.empty())
             {
                 if(alias[0] <= 'z' && alias[0] >= 'a')
