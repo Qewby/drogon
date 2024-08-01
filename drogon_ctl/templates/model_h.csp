@@ -322,7 +322,7 @@ auto cols=@@.get<std::vector<ColumnInfo>>("columns");
     for(auto col:cols)
     {
         if(!col.colType_.empty())
-            $$<<"    std::shared_ptr<"<<col.colType_<<"> "<<col.colValName_<<"_;\n";
+            $$<<"    std::shared_ptr<"<<col.colType_<<"> _"<<col.colValName_<<";\n";
     }
     %>
     struct MetaData
