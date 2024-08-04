@@ -510,6 +510,7 @@ void MysqlConnection::execSqlInLoop(
     {
         sql_ = std::string(sql.data(), sql.length());
     }
+    LOG_DEBUG << sql_;
     startQuery();
     setChannel();
 }
