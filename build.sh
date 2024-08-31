@@ -28,11 +28,11 @@ function build_drogon() {
 
     echo "Start building drogon ..."
     if [ $1 -eq 1 ]; then
-        cmake .. -DBUILD_TESTING=YES $cmake_gen
+        cmake .. -DBUILD_TESTING=YES -DUSE_SPDLOG=ON $cmake_gen
     elif [ $1 -eq 2 ]; then
-        cmake .. -DBUILD_TESTING=YES -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_VISIBILITY_PRESET=hidden -DCMAKE_VISIBILITY_INLINES_HIDDEN=1 $cmake_gen
+        cmake .. -DBUILD_TESTING=YES -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_VISIBILITY_PRESET=hidden -DCMAKE_VISIBILITY_INLINES_HIDDEN=1 -DUSE_SPDLOG=ON $cmake_gen
     else
-        cmake .. -DCMAKE_BUILD_TYPE=release $cmake_gen
+        cmake .. -DCMAKE_BUILD_TYPE=release -DUSE_SPDLOG=ON $cmake_gen
     fi
 
     #If errors then exit
