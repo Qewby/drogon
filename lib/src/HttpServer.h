@@ -49,6 +49,11 @@ class HttpServer : trantor::NonCopyable
         server_.enableSSL(std::move(policy));
     }
 
+    void reloadSSL()
+    {
+        server_.reloadSSL();
+    }
+
     const trantor::InetAddress &address() const
     {
         return server_.address();
@@ -62,6 +67,12 @@ class HttpServer : trantor::NonCopyable
     void setAfterAcceptSockOptCallback(std::function<void(int)> cb)
     {
         afterAcceptSetSockOptCallback_ = std::move(cb);
+    }
+
+    void setConnectionCallback(
+        std::function<void(const trantor::TcpConnectionPtr &)> cb)
+    {
+        connectionCallback_ = std::move(cb);
     }
 
   private:
@@ -139,6 +150,7 @@ class HttpServer : trantor::NonCopyable
 
     std::function<void(int)> beforeListenSetSockOptCallback_;
     std::function<void(int)> afterAcceptSetSockOptCallback_;
+    std::function<void(const trantor::TcpConnectionPtr &)> connectionCallback_;
 };
 
 class HttpInternalForwardHelper

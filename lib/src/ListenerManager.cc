@@ -121,6 +121,10 @@ void ListenerManager::createListeners(
                 serverPtr->setAfterAcceptSockOptCallback(
                     afterAcceptSetSockOptCallback_);
             }
+            if (connectionCallback_)
+            {
+                serverPtr->setConnectionCallback(connectionCallback_);
+            }
 
             if (listener.useSSL_ && utils::supportsTls())
             {
@@ -212,5 +216,13 @@ void ListenerManager::stopListening()
         assert(!loop->isInLoopThread());
         loop->quit();
         listeningThread_->wait();
+    }
+}
+
+void ListenerManager::reloadSSLFiles()
+{
+    for (auto &server : servers_)
+    {
+        server->reloadSSL();
     }
 }

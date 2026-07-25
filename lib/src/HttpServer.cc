@@ -30,6 +30,7 @@
 #include "HttpControllersRouter.h"
 #include "StaticFileRouter.h"
 #include "WebSocketConnectionImpl.h"
+#include "impl_forwards.h"
 
 #if COZ_PROFILING
 #include <coz.h>
@@ -75,7 +76,12 @@ HttpServer::HttpServer(EventLoop *loop,
     : server_(loop, listenAddr, std::move(name), true, app().reusePort())
 #endif
 {
-    server_.setConnectionCallback(onConnection);
+    server_.setConnectionCallback(
+        [this](const trantor::TcpConnectionPtr &conn) {
+            onConnection(conn);
+            if (connectionCallback_)
+                connectionCallback_(conn);
+        });
     server_.setRecvMessageCallback(onMessage);
     server_.kickoffIdleConnections(
         HttpAppFrameworkImpl::instance().getIdleConnectionTimeout());
@@ -124,15 +130,20 @@ void HttpServer::onConnection(const TcpConnectionPtr &conn)
     else if (conn->disconnected())
     {
         LOG_TRACE << "conn disconnected!";
-        HttpConnectionLimit::instance().releaseConnection(conn);
         auto requestParser = conn->getContext<HttpRequestParser>();
         if (requestParser)
         {
+            // NOTE: if tls handshake fails, `onConnection()` will only be
+            // called once with a broken conn. So we only call
+            // `releaseConnection()` for conn with context.
+            // Never call `conn->clearContext()` in other places
+            HttpConnectionLimit::instance().releaseConnection(conn);
             if (requestParser->webSocketConn())
             {
                 requestParser->webSocketConn()->onClose();
             }
-            else if (requestParser->requestImpl()->isStreamMode())
+            else if (requestParser->requestImpl()->streamStatus() ==
+                     ReqStreamStatus::Open)
             {
                 requestParser->requestImpl()->streamError(
                     std::make_exception_ptr(
@@ -200,13 +211,9 @@ void HttpServer::onMessage(const TcpConnectionPtr &conn, MsgBuffer *buf)
                     statusCodeToString(code).data()));
             }
             buf->retrieveAll();
-            // NOTE: should we call conn->forceClose() instead?
-            // Calling shutdown() handles socket more elegantly.
+            // stop parser to ignore following illegal data from client
+            requestParser->stop();
             conn->shutdown();
-            // We have to call clearContext() here in order to ignore following
-            // illegal data from client
-            conn->clearContext();
-            requestParser->reset();
             return;
         }
         if (parseRes == 0)
@@ -220,6 +227,7 @@ void HttpServer::onMessage(const TcpConnectionPtr &conn, MsgBuffer *buf)
             req->setCreationDate(trantor::Date::date());
             req->setSecure(conn->isSSLConnection());
             req->setPeerCertificate(conn->peerCertificate());
+            req->setConnectionPtr(conn);
             // TODO: maybe call onRequests() directly in stream mode
             requests.push_back(req);
         }
@@ -306,7 +314,7 @@ void HttpServer::onRequests(
             return;
         }
 
-        // flush response for not passing sync advices
+        // flush response for not passing sync advice
         if (conn->connected() && !requestParser->getResponseBuffer().empty())
         {
             sendResponses(conn,
@@ -508,7 +516,7 @@ void HttpServer::requestPostRouting(const HttpRequestImplPtr &req, Pack &&pack)
                 else
                 {
                     req->quitStreamMode();
-                    LOG_DEBUG << "Stop processing request due to stream error";
+                    LOG_ERROR << "Stop processing request due to stream error";
                     pack.callback(
                         app().getCustomErrorHandler()(k400BadRequest, req));
                 }
@@ -569,12 +577,18 @@ void HttpServer::requestPassMiddlewares(const HttpRequestImplPtr &req,
 template <typename Pack>
 void HttpServer::requestPreHandling(const HttpRequestImplPtr &req, Pack &&pack)
 {
+    // Handle CORS preflight request, except when custom handling is desired
     if (req->method() == Options)
     {
-        handleHttpOptions(req,
-                          *pack.binderPtr->corsMethods_,
-                          std::move(pack.callback));
-        return;
+        if (!req->attributes()->get<bool>("drogon.customCORShandling"))
+        {
+            handleHttpOptions(req,
+                              *pack.binderPtr->corsMethods_,
+                              std::move(pack.callback));
+            return;
+        }
+        req->attributes()->insert("drogon.corsMethods",
+                                  *pack.binderPtr->corsMethods_);
     }
 
     // pre-handling aop
@@ -966,10 +980,12 @@ void HttpServer::sendResponse(const TcpConnectionPtr &conn,
     {
         auto httpString = respImplPtr->renderToBuffer();
         conn->send(httpString);
+        if (!respImplPtr->contentLengthIsAllowed())
+            return;
         auto &asyncStreamCallback = respImplPtr->asyncStreamCallback();
         if (asyncStreamCallback)
         {
-            if (!respImplPtr->ifCloseConnection())
+            if (respImplPtr->version() != Version::kHttp10)
             {
                 asyncStreamCallback(
                     std::make_unique<ResponseStream>(conn->sendAsyncStream(
@@ -977,7 +993,7 @@ void HttpServer::sendResponse(const TcpConnectionPtr &conn,
             }
             else
             {
-                LOG_INFO << "Chunking Set CloseConnection !!!";
+                LOG_INFO << "Async stream not supported for HTTP/1.0";
             }
         }
         auto &streamCallback = respImplPtr->streamCallback();
@@ -1046,12 +1062,14 @@ void HttpServer::sendResponses(
         {
             // Not HEAD method
             respImplPtr->renderToBuffer(buffer);
+            if (!respImplPtr->contentLengthIsAllowed())
+                continue;
             auto &asyncStreamCallback = respImplPtr->asyncStreamCallback();
             if (asyncStreamCallback)
             {
                 conn->send(buffer);
                 buffer.retrieveAll();
-                if (!respImplPtr->ifCloseConnection())
+                if (respImplPtr->version() != Version::kHttp10)
                 {
                     asyncStreamCallback(
                         std::make_unique<ResponseStream>(conn->sendAsyncStream(
@@ -1059,7 +1077,7 @@ void HttpServer::sendResponses(
                 }
                 else
                 {
-                    LOG_INFO << "Chunking Set CloseConnection !!!";
+                    LOG_INFO << "Async stream not supported for HTTP/1.0";
                 }
             }
             auto &streamCallback = respImplPtr->streamCallback();
@@ -1191,7 +1209,7 @@ static inline HttpResponsePtr tryDecompressRequest(
  * @brief Check request against each sync advice, generate response if request
  * is rejected by any one of them.
  *
- * @return true if all sync advices are passed.
+ * @return true if all sync advice are passed.
  * @return false if rejected by any sync advice.
  */
 static inline bool passSyncAdvices(

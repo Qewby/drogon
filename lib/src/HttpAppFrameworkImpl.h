@@ -84,6 +84,9 @@ class HttpAppFrameworkImpl final : public HttpAppFramework
         override;
     HttpAppFramework &setSSLFiles(const std::string &certPath,
                                   const std::string &keyPath) override;
+
+    HttpAppFramework &reloadSSLFiles() override;
+
     void run() override;
     HttpAppFramework &registerWebSocketController(
         const std::string &pathName,
@@ -264,7 +267,7 @@ class HttpAppFrameworkImpl final : public HttpAppFramework
     HttpAppFramework &setUploadPath(const std::string &uploadPath) override;
     HttpAppFramework &setFileTypes(
         const std::vector<std::string> &types) override;
-#ifndef _WIN32
+#if !defined(_WIN32) && !TARGET_OS_IOS
     HttpAppFramework &enableDynamicViewsLoading(
         const std::vector<std::string> &libPaths,
         const std::string &outputPath) override;
@@ -662,6 +665,8 @@ class HttpAppFrameworkImpl final : public HttpAppFramework
         std::function<void(int)> cb) override;
     HttpAppFramework &setAfterAcceptSockOptCallback(
         std::function<void(int)> cb) override;
+    HttpAppFramework &setConnectionCallback(
+        std::function<void(const trantor::TcpConnectionPtr &)> cb) override;
 
     HttpAppFramework &enableRequestStream(bool enable) override;
     bool isRequestStreamEnabled() const override;
@@ -704,7 +709,7 @@ class HttpAppFrameworkImpl final : public HttpAppFramework
     size_t threadNum_{1};
     std::unique_ptr<trantor::EventLoopThreadPool> ioLoopThreadPool_;
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !TARGET_OS_IOS
     std::vector<std::string> libFilePaths_;
     std::string libFileOutputPath_;
     std::unique_ptr<SharedLibManager> sharedLibManagerPtr_;
