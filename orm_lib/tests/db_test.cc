@@ -25,6 +25,7 @@
 
 #include <stdlib.h>
 #include <chrono>
+#include <future>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -891,6 +892,40 @@ DROGON_TEST(PostgreTest)
     catch (const DrogonDbException &e)
     {
         FAULT("postgresql - ORM QueryBuilder synchronous interface(3) what():",
+              e.base().what());
+    }
+    try
+    {
+        const Users user =
+            QueryBuilder<Users>{}
+                .from("users")
+                .selectAll()
+                .leftJoin("wallets", "users.user_id", "wallets.user_id")
+                .eq("user_name", "postgres")
+                .single()
+                .execSync(clientPtr);
+        MANDATE(user.getValueOfUserName() == "postgres");
+    }
+    catch (const DrogonDbException &e)
+    {
+        FAULT("postgresql - ORM QueryBuilder JOIN + single() model what():",
+              e.base().what());
+    }
+    try
+    {
+        const Row wallet =
+            QueryBuilder<Users>{}
+                .from("users")
+                .select("wallets.amount")
+                .leftJoin("wallets", "users.user_id", "wallets.user_id")
+                .limit(1)
+                .single()
+                .execSync(clientPtr);
+        MANDATE(wallet["amount"].isNull());
+    }
+    catch (const DrogonDbException &e)
+    {
+        FAULT("postgresql - ORM QueryBuilder JOIN + single() row what():",
               e.base().what());
     }
 
@@ -2272,6 +2307,40 @@ DROGON_TEST(MySQLTest)
         FAULT("mysql - ORM QueryBuilder synchronous interface(3) what():",
               e.base().what());
     }
+    try
+    {
+        const Users user =
+            QueryBuilder<Users>{}
+                .from("users")
+                .selectAll()
+                .leftJoin("wallets", "users.user_id", "wallets.user_id")
+                .eq("user_name", "postgres")
+                .single()
+                .execSync(clientPtr);
+        MANDATE(user.getValueOfUserName() == "postgres");
+    }
+    catch (const DrogonDbException &e)
+    {
+        FAULT("mysql - ORM QueryBuilder JOIN + single() model what():",
+              e.base().what());
+    }
+    try
+    {
+        const Row wallet =
+            QueryBuilder<Users>{}
+                .from("users")
+                .select("wallets.amount")
+                .leftJoin("wallets", "users.user_id", "wallets.user_id")
+                .limit(1)
+                .single()
+                .execSync(clientPtr);
+        MANDATE(wallet["amount"].isNull());
+    }
+    catch (const DrogonDbException &e)
+    {
+        FAULT("mysql - ORM QueryBuilder JOIN + single() row what():",
+              e.base().what());
+    }
 
     /// execAsyncFuture
     {
@@ -3549,6 +3618,40 @@ DROGON_TEST(SQLite3Test)
         FAULT("sqlite3 - ORM QueryBuilder synchronous interface(3) what():",
               e.base().what());
     }
+    try
+    {
+        const Users user =
+            QueryBuilder<Users>{}
+                .from("users")
+                .selectAll()
+                .leftJoin("wallets", "users.user_id", "wallets.user_id")
+                .eq("user_name", "postgres")
+                .single()
+                .execSync(clientPtr);
+        MANDATE(user.getValueOfUserName() == "postgres");
+    }
+    catch (const DrogonDbException &e)
+    {
+        FAULT("sqlite3 - ORM QueryBuilder JOIN + single() model what():",
+              e.base().what());
+    }
+    try
+    {
+        const Row wallet =
+            QueryBuilder<Users>{}
+                .from("users")
+                .select("wallets.amount")
+                .leftJoin("wallets", "users.user_id", "wallets.user_id")
+                .limit(1)
+                .single()
+                .execSync(clientPtr);
+        MANDATE(wallet["amount"].isNull());
+    }
+    catch (const DrogonDbException &e)
+    {
+        FAULT("sqlite3 - ORM QueryBuilder JOIN + single() row what():",
+              e.base().what());
+    }
 
     /// execAsyncFuture
     {
@@ -4062,6 +4165,67 @@ DROGON_TEST(SQLite3Test)
 #endif
 
 #if USE_SQLITE3
+DROGON_TEST(SQLite3FailedCommitRollbackTest)
+{
+    // One connection makes reuse of a failed transaction deterministic.
+    auto client = DbClient::newSqlite3Client("filename=:memory:", 1);
+    client->execSqlSync("PRAGMA foreign_keys = ON");
+    client->execSqlSync("CREATE TABLE parents(id INTEGER PRIMARY KEY)");
+    client->execSqlSync(
+        "CREATE TABLE children(parent_id INTEGER REFERENCES parents(id)"
+        " DEFERRABLE INITIALLY DEFERRED)");
+
+    for (bool withCallback : {true, false})
+    {
+        auto committed = std::make_shared<std::promise<bool>>();
+        auto commitResult = committed->get_future();
+        auto trans = client->newTransaction();
+        if (withCallback)
+        {
+            trans->setCommitCallback(
+                [committed](bool success) { committed->set_value(success); });
+        }
+        trans->execSqlSync("INSERT INTO parents VALUES(1)");
+        // INSERT succeeds, but COMMIT fails and SQLite leaves the transaction
+        // open until it is explicitly rolled back.
+        trans->execSqlSync("INSERT INTO children VALUES(2)");
+
+        // This query must not see the uncommitted rows when the connection is
+        // returned to the pool, even without a commit callback.
+        auto queuedRead = client->execSqlAsyncFuture(
+            "SELECT (SELECT count(*) FROM parents),"
+            " (SELECT count(*) FROM children)");
+        trans.reset();
+        if (withCallback)
+        {
+            REQUIRE(commitResult.wait_for(5s) == std::future_status::ready);
+            CHECK(!commitResult.get());
+        }
+        REQUIRE(queuedRead.wait_for(5s) == std::future_status::ready);
+        auto rows = queuedRead.get();
+        REQUIRE(rows[0][0].as<int>() == 0);
+        REQUIRE(rows[0][1].as<int>() == 0);
+
+        // A subsequent transaction on the same connection must begin and
+        // commit normally, with no writes left over from the failed commit.
+        auto nextCommitted = std::make_shared<std::promise<bool>>();
+        auto nextCommitResult = nextCommitted->get_future();
+        trans = client->newTransaction([nextCommitted](bool success) {
+            nextCommitted->set_value(success);
+        });
+        trans->execSqlSync("INSERT INTO parents VALUES(2)");
+        trans->execSqlSync("INSERT INTO children VALUES(2)");
+        trans.reset();
+        REQUIRE(nextCommitResult.wait_for(5s) == std::future_status::ready);
+        CHECK(nextCommitResult.get());
+        rows = client->execSqlSync("SELECT parent_id FROM children");
+        REQUIRE(rows.size() == 1);
+        CHECK(rows[0][0].as<int>() == 2);
+        client->execSqlSync("DELETE FROM children");
+        client->execSqlSync("DELETE FROM parents");
+    }
+}
+
 DROGON_TEST(SQLite3TransactionTypeTest)
 {
     auto clientPtr = DbClient::newSqlite3Client("filename=:memory:", 1);
